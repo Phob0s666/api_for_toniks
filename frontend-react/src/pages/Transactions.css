@@ -247,6 +247,41 @@
     margin-bottom: 1rem;
 }
 
+.info-alert {
+    background: rgba(34, 197, 94, 0.12);
+    border: 1px solid rgba(34, 197, 94, 0.35);
+    color: #166534;
+    padding: 0.75rem 1rem;
+    border-radius: 0.5rem;
+    font-size: 0.875rem;
+    margin-bottom: 1rem;
+}
+
+.card-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.btn-import-transactions {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    border: 1px solid var(--color-border-input);
+    background: var(--color-bg-input);
+    color: var(--color-text-heading);
+    border-radius: 0.5rem;
+    padding: 0.55rem 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: border-color 0.2s, color 0.2s;
+}
+
+.btn-import-transactions:hover {
+    border-color: var(--color-btn-primary);
+    color: var(--color-btn-primary);
+}
+
 /* ── Mobile card list ─────────────────────────────────────────────────────── */
 .tx-cards-mobile { display: none; }
 

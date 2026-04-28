@@ -87,7 +87,10 @@
     "error_update": "Error updating transaction",
     "error_delete": "Error deleting transaction",
     "error_no_cat": "Please create a category first!",
-    "confirm_delete": "Delete this transaction?"
+    "confirm_delete": "Delete this transaction?",
+    "import_btn": "Import statement",
+    "import_success": "Imported: {{imported}}, skipped: {{skipped}}",
+    "import_error": "Failed to import file"
   },
   "categories": {
     "title": "Manage Categories",
