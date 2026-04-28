@@ -307,12 +307,45 @@ func parseImportDate(raw string) (time.Time, error) {
 	if num, err := strconv.ParseFloat(strings.ReplaceAll(value, ",", "."), 64); err == nil && num > 20000 && num < 100000 {
 		return excelSerialToTime(num), nil
 	}
-	formats := []string{"2006-01-02", "02.01.2006", "02/01/2006", "2006/01/02", "02-01-2006", "2006-01-02 15:04:05", "02.01.2006 15:04:05", time.RFC3339}
+	formats := []string{
+		"2006-01-02",
+		"02.01.2006",
+		"02/01/2006",
+		"2006/01/02",
+		"02-01-2006",
+		"2006-01-02 15:04:05",
+		"2006-01-02 15:04",
+		"02.01.2006 15:04:05",
+		"02.01.2006 15:04",
+		time.RFC3339,
+	}
 	for _, format := range formats {
 		if parsed, err := time.Parse(format, value); err == nil {
 			return parsed, nil
 		}
 	}
+
+	// Fallback: extract date fragment from noisy values like "26.04.2026 09:28:11Заощадження".
+	datePatterns := []string{
+		`(\d{2}\.\d{2}\.\d{4}\s+\d{2}:\d{2}:\d{2})`,
+		`(\d{2}\.\d{2}\.\d{4}\s+\d{2}:\d{2})`,
+		`(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})`,
+		`(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})`,
+		`(\d{2}\.\d{2}\.\d{4})`,
+		`(\d{4}-\d{2}-\d{2})`,
+	}
+	for _, pattern := range datePatterns {
+		match := regexp.MustCompile(pattern).FindString(value)
+		if match == "" {
+			continue
+		}
+		for _, format := range formats {
+			if parsed, err := time.Parse(format, strings.TrimSpace(match)); err == nil {
+				return parsed, nil
+			}
+		}
+	}
+
 	return time.Time{}, fmt.Errorf("invalid date")
 }
 
