@@ -48,6 +48,7 @@ func main() {
 		protected.DELETE("/categories/:id", handlers.DeleteCategory)
 
 		protected.POST("/transactions", handlers.CreateTransaction)
+		protected.POST("/transactions/import", handlers.ImportTransactions)
 		protected.GET("/transactions", handlers.GetTransactions)
 		protected.GET("/transactions/:id", handlers.GetTransactionByID)
 		protected.PUT("/transactions/:id", handlers.UpdateTransaction)

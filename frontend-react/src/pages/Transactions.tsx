@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useSettings } from '../context/SettingsContext';
 import { useTranslation } from 'react-i18next';
-import { Plus, Trash2, ReceiptText, Pencil, X, Check } from 'lucide-react';
+import { Plus, Trash2, ReceiptText, Pencil, X, Check, Upload } from 'lucide-react';
 import DeleteSnackbar from '../components/DeleteSnackbar';
 import './Transactions.css';
 
@@ -33,6 +33,8 @@ const Transactions: React.FC = () => {
     income_type: 'one_time',
   });
   const [formError, setFormError] = useState('');
+  const [infoMessage, setInfoMessage] = useState('');
+  const importInputRef = useRef<HTMLInputElement | null>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{ item: Transaction; index: number } | null>(null);
   const deleteTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -74,6 +76,7 @@ const Transactions: React.FC = () => {
       return;
     }
     setFormError('');
+    setInfoMessage('');
     try {
       const payload = {
         ...formState,
@@ -148,6 +151,7 @@ const Transactions: React.FC = () => {
 
   const handleUpdate = async (id: number) => {
     setFormError('');
+    setInfoMessage('');
     try {
       const payload = {
         ...editState,
@@ -165,6 +169,47 @@ const Transactions: React.FC = () => {
 
   const handleCancelEdit = () => setEditingId(null);
 
+  const handleImportClick = () => {
+    if (!formState.category_id) {
+      setFormError(t('transactions.error_no_cat'));
+      return;
+    }
+    importInputRef.current?.click();
+  };
+
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) {
+      return;
+    }
+    if (!formState.category_id) {
+      setFormError(t('transactions.error_no_cat'));
+      e.target.value = '';
+      return;
+    }
+
+    setFormError('');
+    setInfoMessage('');
+    try {
+      const data = new FormData();
+      data.append('file', file);
+      data.append('category_id', formState.category_id);
+
+      const response = await axiosInstance.post('/transactions/import', data, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+
+      const imported = response.data?.imported ?? 0;
+      const skipped = response.data?.skipped ?? 0;
+      setInfoMessage(t('transactions.import_success', { imported, skipped }));
+      fetchData();
+    } catch {
+      setFormError(t('transactions.import_error'));
+    } finally {
+      e.target.value = '';
+    }
+  };
+
   if (loading) return <div className="transactions-wrapper">{t('common.loading')}</div>;
 
   return (
@@ -172,9 +217,25 @@ const Transactions: React.FC = () => {
       <h1 className="transactions-title">{t('transactions.title')}</h1>
 
       {formError && <div className="error-alert">{formError}</div>}
+      {infoMessage && <div className="info-alert">{infoMessage}</div>}
 
       <div className="transaction-card">
-        <div className="card-title"><Plus size={20} style={{marginRight: '8px'}}/> {t('transactions.new_record')}</div>
+        <div className="card-header">
+          <div className="card-title"><Plus size={20} style={{marginRight: '8px'}}/> {t('transactions.new_record')}</div>
+          <div className="card-header-actions">
+            <input
+              ref={importInputRef}
+              type="file"
+              accept=".csv,.txt"
+              onChange={handleImportFile}
+              style={{ display: 'none' }}
+            />
+            <button type="button" className="btn-import-transactions" onClick={handleImportClick}>
+              <Upload size={16} />
+              {t('transactions.import_btn')}
+            </button>
+          </div>
+        </div>
         <form onSubmit={handleSubmit} className="transaction-form-grid">
           <div className="form-group">
             <label>{t('transactions.amount')}</label>
