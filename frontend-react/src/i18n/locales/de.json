@@ -87,7 +87,10 @@
     "error_update": "Fehler beim Aktualisieren der Transaktion",
     "error_delete": "Fehler beim Löschen der Transaktion",
     "error_no_cat": "Bitte erstellen Sie zuerst eine Kategorie!",
-    "confirm_delete": "Diese Transaktion löschen?"
+    "confirm_delete": "Diese Transaktion löschen?",
+    "import_btn": "Auszug importieren",
+    "import_success": "Importiert: {{imported}}, übersprungen: {{skipped}}",
+    "import_error": "Dateiimport fehlgeschlagen"
   },
   "categories": {
     "title": "Kategorien verwalten",
