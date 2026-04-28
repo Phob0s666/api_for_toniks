@@ -82,15 +82,10 @@ func ImportTransactions(c *gin.Context) {
 	for idx, row := range rows {
 		lineNo := idx + 2
 
-		amount, err := parseAmount(firstNonEmpty(
-			row["amount"],
-			row["sum"],
-			row["сумма"],
-			row["сума"],
-			row["amount_alt"],
-		))
+		amountRaw := extractAmountFromRow(row)
+		amount, err := parseAmount(amountRaw)
 		if err != nil || amount == 0 {
-			logImportSkip(lineNo, "invalid amount", firstNonEmpty(row["amount"], row["amount_alt"], row["sum"], row["сума"]))
+			logImportSkip(lineNo, "invalid amount", amountRaw)
 			skipped++
 			continue
 		}
@@ -165,6 +160,36 @@ func ImportTransactions(c *gin.Context) {
 
 func logImportSkip(lineNo int, reason string, rawValue string) {
 	log.Printf("[transactions/import] skipped line=%d reason=%s raw=%q", lineNo, reason, rawValue)
+}
+
+func extractAmountFromRow(row map[string]string) string {
+	primary := firstNonEmpty(
+		row["amount"],
+		row["sum"],
+		row["сумма"],
+		row["сума"],
+	)
+	if strings.TrimSpace(primary) != "" {
+		return primary
+	}
+
+	secondary := strings.TrimSpace(row["amount_alt"])
+	if secondary != "" {
+		return secondary
+	}
+
+	// Fallback: some bank headers come in slightly different variants.
+	for key, value := range row {
+		k := strings.ToLower(strings.TrimSpace(key))
+		if strings.TrimSpace(value) == "" {
+			continue
+		}
+		if strings.Contains(k, "сума") || strings.Contains(k, "сумма") || strings.Contains(k, "sum") || strings.Contains(k, "amount") {
+			return value
+		}
+	}
+
+	return ""
 }
 
 func parseImportRows(filename string, content []byte) ([]map[string]string, error) {
