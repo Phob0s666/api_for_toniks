@@ -88,7 +88,7 @@
     "error_delete": "Помилка при видаленні",
     "error_no_cat": "Спочатку створіть категорію!",
     "confirm_delete": "Видалити транзакцію?",
-    "import_btn": "Імпорт CSV виписки",
+    "import_btn": "Імпорт виписки",
     "import_success": "Імпортовано: {{imported}}, пропущено: {{skipped}}",
     "import_error": "Помилка імпорту файлу"
   },

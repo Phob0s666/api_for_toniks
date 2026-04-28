@@ -226,7 +226,7 @@ const Transactions: React.FC = () => {
             <input
               ref={importInputRef}
               type="file"
-              accept=".csv,.txt"
+              accept=".xlsx,.csv,.txt"
               onChange={handleImportFile}
               style={{ display: 'none' }}
             />
