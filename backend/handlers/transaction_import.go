@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -280,10 +281,22 @@ func parseAmount(raw string) (float64, error) {
 	if value == "" {
 		return 0, fmt.Errorf("empty amount")
 	}
-	value = strings.ReplaceAll(value, " ", "")
-	value = strings.ReplaceAll(value, "\u00A0", "")
-	value = strings.ReplaceAll(value, ",", ".")
-	return strconv.ParseFloat(value, 64)
+
+	compact := strings.ReplaceAll(value, "\u00A0", " ")
+	compact = strings.ReplaceAll(compact, " ", "")
+	compact = strings.ReplaceAll(compact, ",", ".")
+	if parsed, err := strconv.ParseFloat(compact, 64); err == nil {
+		return parsed, nil
+	}
+
+	numberPattern := regexp.MustCompile(`[-+]?\d[\d\s]*([.,]\d+)?`)
+	match := numberPattern.FindString(value)
+	if strings.TrimSpace(match) == "" {
+		return 0, fmt.Errorf("invalid amount")
+	}
+	match = strings.ReplaceAll(match, " ", "")
+	match = strings.ReplaceAll(match, ",", ".")
+	return strconv.ParseFloat(match, 64)
 }
 
 func parseImportDate(raw string) (time.Time, error) {
@@ -463,7 +476,7 @@ func resolveImportCategoryID(userID uint, defaultCategoryID *uint, categoryName 
 		if defaultCategoryID != nil {
 			return *defaultCategoryID, false, nil
 		}
-		return 0, false, fmt.Errorf("category is required")
+		name = "Imported"
 	}
 	if len(name) > 100 {
 		name = name[:100]
