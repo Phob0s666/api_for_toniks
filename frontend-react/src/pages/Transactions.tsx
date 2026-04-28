@@ -170,10 +170,6 @@ const Transactions: React.FC = () => {
   const handleCancelEdit = () => setEditingId(null);
 
   const handleImportClick = () => {
-    if (!formState.category_id) {
-      setFormError(t('transactions.error_no_cat'));
-      return;
-    }
     importInputRef.current?.click();
   };
 
@@ -182,18 +178,14 @@ const Transactions: React.FC = () => {
     if (!file) {
       return;
     }
-    if (!formState.category_id) {
-      setFormError(t('transactions.error_no_cat'));
-      e.target.value = '';
-      return;
-    }
-
     setFormError('');
     setInfoMessage('');
     try {
       const data = new FormData();
       data.append('file', file);
-      data.append('category_id', formState.category_id);
+      if (formState.category_id) {
+        data.append('category_id', formState.category_id);
+      }
 
       const response = await axiosInstance.post('/transactions/import', data, {
         headers: { 'Content-Type': 'multipart/form-data' },
@@ -226,7 +218,7 @@ const Transactions: React.FC = () => {
             <input
               ref={importInputRef}
               type="file"
-              accept=".csv,.txt"
+              accept=".xlsx,.csv,.txt"
               onChange={handleImportFile}
               style={{ display: 'none' }}
             />

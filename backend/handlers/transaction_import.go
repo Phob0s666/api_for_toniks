@@ -1,8 +1,10 @@
 package handlers
 
 import (
+	"archive/zip"
 	"bytes"
 	"encoding/csv"
+	"encoding/xml"
 	"fmt"
 	"io"
 	"net/http"
@@ -25,20 +27,21 @@ func ImportTransactions(c *gin.Context) {
 		return
 	}
 
-	categoryID, err := strconv.ParseUint(c.PostForm("category_id"), 10, 32)
-	if err != nil || categoryID == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "category_id is required"})
+	defaultCategoryID, err := parseOptionalCategoryID(c.PostForm("category_id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid category_id"})
 		return
 	}
-
-	var category models.Category
-	if err := database.DB.Where("id = ? AND user_id = ?", uint(categoryID), userID).First(&category).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Category not found or does not belong to you"})
-		} else {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify category: " + err.Error()})
+	if defaultCategoryID != nil {
+		var category models.Category
+		if err := database.DB.Where("id = ? AND user_id = ?", *defaultCategoryID, userID).First(&category).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				c.JSON(http.StatusNotFound, gin.H{"error": "Category not found or does not belong to you"})
+			} else {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify category: " + err.Error()})
+			}
+			return
 		}
-		return
 	}
 
 	fileHeader, err := c.FormFile("file")
@@ -72,6 +75,8 @@ func ImportTransactions(c *gin.Context) {
 
 	imported := 0
 	skipped := 0
+	createdCategories := 0
+	categoryCache := map[string]uint{}
 	for idx, row := range rows {
 		lineNo := idx + 2
 
@@ -110,9 +115,24 @@ func ImportTransactions(c *gin.Context) {
 			amount = -amount
 		}
 
+		categoryID, wasCreated, err := resolveImportCategoryID(
+			userID.(uint),
+			defaultCategoryID,
+			firstNonEmpty(row["category"], row["категория"], row["категорія"], row["категорiя"]),
+			categoryCache,
+		)
+		if err != nil {
+			skipped++
+			_ = lineNo
+			continue
+		}
+		if wasCreated {
+			createdCategories++
+		}
+
 		transaction := models.Transaction{
 			UserID:      userID.(uint),
-			CategoryID:  uint(categoryID),
+			CategoryID:  categoryID,
 			Amount:      amount,
 			Description: description,
 			Date:        parsedDate,
@@ -129,15 +149,53 @@ func ImportTransactions(c *gin.Context) {
 		imported++
 	}
 
-	c.JSON(http.StatusOK, gin.H{"imported": imported, "skipped": skipped})
+	c.JSON(http.StatusOK, gin.H{"imported": imported, "skipped": skipped, "created_categories": createdCategories})
 }
 
 func parseImportRows(filename string, content []byte) ([]map[string]string, error) {
 	ext := strings.ToLower(filepath.Ext(filename))
+	if ext == ".xlsx" {
+		return parseXLSXRows(content)
+	}
 	if ext != ".csv" && ext != ".txt" {
-		return nil, fmt.Errorf("unsupported file format. Export your Excel statement to CSV and upload .csv")
+		return nil, fmt.Errorf("unsupported file format. Use .xlsx, .csv or .txt")
 	}
 	return parseCSVRows(content)
+}
+
+func parseXLSXRows(content []byte) ([]map[string]string, error) {
+	readerAt := bytes.NewReader(content)
+	archive, err := zip.NewReader(readerAt, int64(len(content)))
+	if err != nil {
+		return nil, fmt.Errorf("invalid xlsx file")
+	}
+
+	sharedStrings := []string{}
+	if data, err := readZipFile(archive, "xl/sharedStrings.xml"); err == nil {
+		sharedStrings = parseSharedStrings(data)
+	}
+
+	sheetPath := "xl/worksheets/sheet1.xml"
+	if _, err := readZipFile(archive, sheetPath); err != nil {
+		sheetPath = ""
+		for _, file := range archive.File {
+			if strings.HasPrefix(file.Name, "xl/worksheets/") && strings.HasSuffix(file.Name, ".xml") {
+				sheetPath = file.Name
+				break
+			}
+		}
+		if sheetPath == "" {
+			return nil, fmt.Errorf("xlsx worksheet not found")
+		}
+	}
+
+	sheetData, err := readZipFile(archive, sheetPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read xlsx worksheet")
+	}
+
+	table := parseSheetRows(sheetData, sharedStrings)
+	return tableRowsToMaps(table), nil
 }
 
 func parseCSVRows(content []byte) ([]map[string]string, error) {
@@ -201,6 +259,8 @@ func normalizeHeader(header string) string {
 		return "description"
 	case "type", "тип", "operation", "операция", "операція":
 		return "type"
+	case "category", "категория", "категорія", "категорiя", "cat":
+		return "category"
 	default:
 		return normalized
 	}
@@ -222,6 +282,9 @@ func parseImportDate(raw string) (time.Time, error) {
 	if value == "" {
 		return time.Time{}, fmt.Errorf("empty date")
 	}
+	if num, err := strconv.ParseFloat(strings.ReplaceAll(value, ",", "."), 64); err == nil && num > 20000 && num < 100000 {
+		return excelSerialToTime(num), nil
+	}
 	formats := []string{"2006-01-02", "02.01.2006", "02/01/2006", "2006/01/02", "02-01-2006", "2006-01-02 15:04:05", "02.01.2006 15:04:05", time.RFC3339}
 	for _, format := range formats {
 		if parsed, err := time.Parse(format, value); err == nil {
@@ -238,4 +301,187 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func excelSerialToTime(serial float64) time.Time {
+	baseDate := time.Date(1899, 12, 30, 0, 0, 0, 0, time.UTC)
+	totalSeconds := int64(serial * 86400)
+	return baseDate.Add(time.Duration(totalSeconds) * time.Second)
+}
+
+type xlsxSST struct {
+	SI []struct {
+		T string `xml:"t"`
+		R []struct {
+			T string `xml:"t"`
+		} `xml:"r"`
+	} `xml:"si"`
+}
+
+func parseSharedStrings(content []byte) []string {
+	var sst xlsxSST
+	if err := xml.Unmarshal(content, &sst); err != nil {
+		return []string{}
+	}
+
+	result := make([]string, 0, len(sst.SI))
+	for _, si := range sst.SI {
+		if si.T != "" {
+			result = append(result, si.T)
+			continue
+		}
+		parts := make([]string, 0, len(si.R))
+		for _, run := range si.R {
+			parts = append(parts, run.T)
+		}
+		result = append(result, strings.Join(parts, ""))
+	}
+	return result
+}
+
+type xlsxWorksheet struct {
+	Rows []struct {
+		Cells []struct {
+			Ref      string `xml:"r,attr"`
+			Type     string `xml:"t,attr"`
+			Value    string `xml:"v"`
+			InlineIS struct {
+				T string `xml:"t"`
+			} `xml:"is"`
+		} `xml:"c"`
+	} `xml:"sheetData>row"`
+}
+
+func parseSheetRows(content []byte, sharedStrings []string) [][]string {
+	var ws xlsxWorksheet
+	if err := xml.Unmarshal(content, &ws); err != nil {
+		return [][]string{}
+	}
+
+	table := [][]string{}
+	maxCol := 0
+
+	for _, row := range ws.Rows {
+		parsedRow := map[int]string{}
+		for _, cell := range row.Cells {
+			colIndex := cellRefToIndex(cell.Ref)
+			if colIndex < 0 {
+				continue
+			}
+
+			value := strings.TrimSpace(cell.Value)
+			if cell.Type == "inlineStr" {
+				value = strings.TrimSpace(cell.InlineIS.T)
+			} else if cell.Type == "s" {
+				sharedIndex, err := strconv.Atoi(value)
+				if err == nil && sharedIndex >= 0 && sharedIndex < len(sharedStrings) {
+					value = sharedStrings[sharedIndex]
+				}
+			}
+
+			parsedRow[colIndex] = value
+			if colIndex > maxCol {
+				maxCol = colIndex
+			}
+		}
+
+		current := make([]string, maxCol+1)
+		for index, value := range parsedRow {
+			current[index] = value
+		}
+		table = append(table, current)
+	}
+
+	return table
+}
+
+func cellRefToIndex(ref string) int {
+	if ref == "" {
+		return -1
+	}
+	letters := ""
+	for _, char := range ref {
+		if char >= 'A' && char <= 'Z' {
+			letters += string(char)
+		} else if char >= 'a' && char <= 'z' {
+			letters += string(char - 32)
+		} else {
+			break
+		}
+	}
+	if letters == "" {
+		return -1
+	}
+
+	index := 0
+	for _, char := range letters {
+		index = index*26 + int(char-'A'+1)
+	}
+	return index - 1
+}
+
+func readZipFile(archive *zip.Reader, path string) ([]byte, error) {
+	for _, file := range archive.File {
+		if file.Name != path {
+			continue
+		}
+		fileReader, err := file.Open()
+		if err != nil {
+			return nil, err
+		}
+		defer fileReader.Close()
+		return io.ReadAll(fileReader)
+	}
+	return nil, fmt.Errorf("file not found: %s", path)
+}
+
+func parseOptionalCategoryID(raw string) (*uint, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return nil, nil
+	}
+	id, err := strconv.ParseUint(value, 10, 32)
+	if err != nil || id == 0 {
+		return nil, fmt.Errorf("invalid category id")
+	}
+	parsed := uint(id)
+	return &parsed, nil
+}
+
+func resolveImportCategoryID(userID uint, defaultCategoryID *uint, categoryName string, cache map[string]uint) (uint, bool, error) {
+	name := strings.TrimSpace(categoryName)
+	if name == "" {
+		if defaultCategoryID != nil {
+			return *defaultCategoryID, false, nil
+		}
+		return 0, false, fmt.Errorf("category is required")
+	}
+	if len(name) > 100 {
+		name = name[:100]
+	}
+
+	cacheKey := strings.ToLower(name)
+	if cachedID, ok := cache[cacheKey]; ok {
+		return cachedID, false, nil
+	}
+
+	var category models.Category
+	if err := database.DB.Where("user_id = ? AND LOWER(name) = LOWER(?)", userID, name).First(&category).Error; err == nil {
+		cache[cacheKey] = category.ID
+		return category.ID, false, nil
+	} else if err != gorm.ErrRecordNotFound {
+		return 0, false, err
+	}
+
+	category = models.Category{
+		UserID:    userID,
+		Name:      name,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+	if err := database.DB.Create(&category).Error; err != nil {
+		return 0, false, err
+	}
+	cache[cacheKey] = category.ID
+	return category.ID, true, nil
 }
