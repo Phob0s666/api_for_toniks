@@ -7,6 +7,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"path/filepath"
 	"regexp"
@@ -89,14 +90,15 @@ func ImportTransactions(c *gin.Context) {
 			row["amount_alt"],
 		))
 		if err != nil || amount == 0 {
+			logImportSkip(lineNo, "invalid amount", firstNonEmpty(row["amount"], row["amount_alt"], row["sum"], row["сума"]))
 			skipped++
-			_ = lineNo
 			continue
 		}
 
 		dateRaw := firstNonEmpty(row["date"], row["дата"])
 		parsedDate, err := parseImportDate(dateRaw)
 		if err != nil {
+			logImportSkip(lineNo, "invalid date", dateRaw)
 			skipped++
 			continue
 		}
@@ -130,8 +132,8 @@ func ImportTransactions(c *gin.Context) {
 			categoryCache,
 		)
 		if err != nil {
+			logImportSkip(lineNo, "category resolve failed", firstNonEmpty(row["category"], row["категория"], row["категорія"], row["категорiя"]))
 			skipped++
-			_ = lineNo
 			continue
 		}
 		if wasCreated {
@@ -151,6 +153,7 @@ func ImportTransactions(c *gin.Context) {
 		}
 
 		if err := database.DB.Create(&transaction).Error; err != nil {
+			logImportSkip(lineNo, "database insert failed", err.Error())
 			skipped++
 			continue
 		}
@@ -158,6 +161,10 @@ func ImportTransactions(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"imported": imported, "skipped": skipped, "created_categories": createdCategories})
+}
+
+func logImportSkip(lineNo int, reason string, rawValue string) {
+	log.Printf("[transactions/import] skipped line=%d reason=%s raw=%q", lineNo, reason, rawValue)
 }
 
 func parseImportRows(filename string, content []byte) ([]map[string]string, error) {
