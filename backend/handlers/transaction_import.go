@@ -80,7 +80,13 @@ func ImportTransactions(c *gin.Context) {
 	for idx, row := range rows {
 		lineNo := idx + 2
 
-		amount, err := parseAmount(firstNonEmpty(row["amount"], row["sum"], row["сумма"], row["сума"]))
+		amount, err := parseAmount(firstNonEmpty(
+			row["amount"],
+			row["sum"],
+			row["сумма"],
+			row["сума"],
+			row["amount_alt"],
+		))
 		if err != nil || amount == 0 {
 			skipped++
 			_ = lineNo
@@ -99,6 +105,7 @@ func ImportTransactions(c *gin.Context) {
 			row["details"],
 			row["note"],
 			row["описание"],
+			row["опис операції"],
 			row["примечание"],
 			row["призначення"],
 		))
@@ -251,11 +258,13 @@ func normalizeHeader(header string) string {
 	normalized = strings.Join(strings.Fields(normalized), " ")
 
 	switch normalized {
-	case "amount", "sum", "сумма", "сума":
+	case "amount", "sum", "сумма", "сума", "сума в валюті картки", "сума в валюте карты":
 		return "amount"
+	case "сума в валюті транзакції", "сума в валюте транзакции":
+		return "amount_alt"
 	case "date", "дата":
 		return "date"
-	case "description", "details", "comment", "note", "описание", "примечание", "призначення":
+	case "description", "details", "comment", "note", "описание", "примечание", "призначення", "опис операції", "опис операции":
 		return "description"
 	case "type", "тип", "operation", "операция", "операція":
 		return "type"
