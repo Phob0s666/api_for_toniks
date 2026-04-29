@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -79,6 +80,7 @@ func ImportTransactions(c *gin.Context) {
 	skipped := 0
 	createdCategories := 0
 	categoryCache := map[string]uint{}
+	skipReportLines := []string{}
 	for idx, row := range rows {
 		lineNo := idx + 2
 
@@ -86,6 +88,7 @@ func ImportTransactions(c *gin.Context) {
 		amount, err := parseAmount(amountRaw)
 		if err != nil || amount == 0 {
 			logImportSkip(lineNo, "invalid amount", amountRaw)
+			skipReportLines = append(skipReportLines, formatImportSkipLine(lineNo, "invalid amount", amountRaw))
 			skipped++
 			continue
 		}
@@ -94,6 +97,7 @@ func ImportTransactions(c *gin.Context) {
 		parsedDate, err := parseImportDate(dateRaw)
 		if err != nil {
 			logImportSkip(lineNo, "invalid date", dateRaw)
+			skipReportLines = append(skipReportLines, formatImportSkipLine(lineNo, "invalid date", dateRaw))
 			skipped++
 			continue
 		}
@@ -128,6 +132,7 @@ func ImportTransactions(c *gin.Context) {
 		)
 		if err != nil {
 			logImportSkip(lineNo, "category resolve failed", firstNonEmpty(row["category"], row["категория"], row["категорія"], row["категорiя"]))
+			skipReportLines = append(skipReportLines, formatImportSkipLine(lineNo, "category resolve failed", firstNonEmpty(row["category"], row["категория"], row["категорія"], row["категорiя"])))
 			skipped++
 			continue
 		}
@@ -149,17 +154,48 @@ func ImportTransactions(c *gin.Context) {
 
 		if err := database.DB.Create(&transaction).Error; err != nil {
 			logImportSkip(lineNo, "database insert failed", err.Error())
+			skipReportLines = append(skipReportLines, formatImportSkipLine(lineNo, "database insert failed", err.Error()))
 			skipped++
 			continue
 		}
 		imported++
 	}
 
-	c.JSON(http.StatusOK, gin.H{"imported": imported, "skipped": skipped, "created_categories": createdCategories})
+	response := gin.H{"imported": imported, "skipped": skipped, "created_categories": createdCategories}
+	if len(skipReportLines) > 0 {
+		reportPath, err := writeImportSkipReport(skipReportLines)
+		if err != nil {
+			log.Printf("[transactions/import] failed to write skip report: %v", err)
+		} else {
+			response["skip_report_file"] = reportPath
+		}
+	}
+
+	c.JSON(http.StatusOK, response)
 }
 
 func logImportSkip(lineNo int, reason string, rawValue string) {
 	log.Printf("[transactions/import] skipped line=%d reason=%s raw=%q", lineNo, reason, rawValue)
+}
+
+func formatImportSkipLine(lineNo int, reason string, rawValue string) string {
+	return fmt.Sprintf("line=%d reason=%s raw=%q", lineNo, reason, rawValue)
+}
+
+func writeImportSkipReport(lines []string) (string, error) {
+	if err := os.MkdirAll("import_logs", 0o755); err != nil {
+		return "", err
+	}
+
+	filename := fmt.Sprintf("import_skip_report_%s.txt", time.Now().UTC().Format("20060102_150405"))
+	fullPath := filepath.Join("import_logs", filename)
+
+	content := strings.Join(lines, "\n") + "\n"
+	if err := os.WriteFile(fullPath, []byte(content), 0o644); err != nil {
+		return "", err
+	}
+
+	return fullPath, nil
 }
 
 func extractAmountFromRow(row map[string]string) string {
