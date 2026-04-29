@@ -320,13 +320,18 @@ func tableRowsToMaps(rows [][]string) []map[string]string {
 		return []map[string]string{}
 	}
 
-	headers := make([]string, len(rows[0]))
-	for i, h := range rows[0] {
+	headerIndex := detectHeaderRowIndex(rows)
+	if headerIndex < 0 || headerIndex >= len(rows)-1 {
+		return []map[string]string{}
+	}
+
+	headers := make([]string, len(rows[headerIndex]))
+	for i, h := range rows[headerIndex] {
 		headers[i] = normalizeHeader(h)
 	}
 
 	result := []map[string]string{}
-	for _, row := range rows[1:] {
+	for _, row := range rows[headerIndex+1:] {
 		item := map[string]string{}
 		hasValue := false
 		for i, val := range row {
@@ -344,6 +349,35 @@ func tableRowsToMaps(rows [][]string) []map[string]string {
 		}
 	}
 	return result
+}
+
+func detectHeaderRowIndex(rows [][]string) int {
+	bestIndex := -1
+	bestScore := -1
+	limit := len(rows)
+	if limit > 20 {
+		limit = 20
+	}
+
+	for idx := 0; idx < limit; idx++ {
+		score := 0
+		for _, cell := range rows[idx] {
+			h := normalizeHeader(cell)
+			switch h {
+			case "date", "amount", "amount_alt", "description", "category", "type":
+				score++
+			}
+		}
+		if score > bestScore {
+			bestScore = score
+			bestIndex = idx
+		}
+	}
+
+	if bestScore <= 0 {
+		return 0
+	}
+	return bestIndex
 }
 
 func normalizeHeader(header string) string {
