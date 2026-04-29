@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -221,6 +222,31 @@ func extractAmountFromRow(row map[string]string) string {
 			continue
 		}
 		if strings.Contains(k, "сума") || strings.Contains(k, "сумма") || strings.Contains(k, "sum") || strings.Contains(k, "amount") {
+			return value
+		}
+	}
+
+	// Last-resort fallback: try to detect numeric amount from any non-date/non-card cell.
+	// This prevents all rows from being skipped when bank headers are malformed/unexpected.
+	keys := make([]string, 0, len(row))
+	for key := range row {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	for _, key := range keys {
+		value := strings.TrimSpace(row[key])
+		if value == "" {
+			continue
+		}
+		lower := strings.ToLower(value)
+		if strings.Contains(value, "*") || strings.Contains(value, ":") || lower == "uah" || lower == "usd" || lower == "eur" {
+			continue
+		}
+		if _, err := parseImportDate(value); err == nil {
+			continue
+		}
+		if parsed, err := parseAmount(value); err == nil && parsed != 0 {
 			return value
 		}
 	}
