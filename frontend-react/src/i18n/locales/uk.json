@@ -87,7 +87,10 @@
     "error_update": "Помилка при оновленні",
     "error_delete": "Помилка при видаленні",
     "error_no_cat": "Спочатку створіть категорію!",
-    "confirm_delete": "Видалити транзакцію?"
+    "confirm_delete": "Видалити транзакцію?",
+    "import_btn": "Імпорт виписки",
+    "import_success": "Імпортовано: {{imported}}, пропущено: {{skipped}}",
+    "import_error": "Помилка імпорту файлу"
   },
   "categories": {
     "title": "Управління категоріями",
